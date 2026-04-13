@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { auth } from '@/auth';
 import { connectDB } from '@/lib/db';
 import { UserSettings } from '@/lib/models/UserSettings';

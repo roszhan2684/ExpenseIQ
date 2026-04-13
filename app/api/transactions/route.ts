@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { auth } from '@/auth';
 import { connectDB } from '@/lib/db';
 import { Transaction } from '@/lib/models/Transaction';
