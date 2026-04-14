@@ -5,9 +5,14 @@ import { getToken } from 'next-auth/jwt';
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // NextAuth v5 renamed the cookie from "next-auth.session-token" to "authjs.session-token"
+  const isSecure = request.nextUrl.protocol === 'https:';
   const token = await getToken({
     req: request,
     secret: process.env.NEXTAUTH_SECRET,
+    cookieName: isSecure
+      ? '__Secure-authjs.session-token'
+      : 'authjs.session-token',
   });
 
   const isLoggedIn = !!token;
