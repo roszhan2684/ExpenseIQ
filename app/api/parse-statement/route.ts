@@ -1,11 +1,11 @@
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { auth } from '@/auth';
 import { DEFAULT_CATEGORIES } from '@/lib/types';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 const SYSTEM_PROMPT = `You are a precise bank statement parser. Extract every real spending transaction from the document.
 
@@ -14,14 +14,14 @@ INCLUDE:
 - Zelle payments SENT (PMT To ...) — these are money the account holder spent
 - Electronic withdrawals to merchants, universities, utilities, subscriptions
 - ATM cash withdrawals
-- Credit card bill payments sent to AMEX, Discover, etc. (real outgoing money)
+- Credit card bill payments (AMEX, Discover, etc.) — real outgoing money
 
 EXCLUDE:
 - Deposits, credits, money received (Zelle PMT From, payroll, mobile check deposits, refunds)
 - Internal bank-to-bank transfers between the holder's own accounts
 - Opening/closing balances, interest, bank fees
 
-YEAR INFERENCE: The statement header contains a period like "Dec 10, 2025 through Jan 12, 2026". Use it to assign the correct full year to every date. Example: "Dec 10" → 2025-12-10, "Jan 5" → 2026-01-05.
+YEAR INFERENCE: The statement header contains a period like "Dec 10, 2025 through Jan 12, 2026". Use it to assign the correct full year to every date. "Dec 10" → 2025-12-10, "Jan 5" → 2026-01-05.
 
 DATE FORMAT: YYYY-MM-DD only.
 
@@ -78,7 +78,13 @@ export async function POST(request: Request) {
     }
 
     const categoriesList = DEFAULT_CATEGORIES.join(', ');
-    const userPrompt = `Extract all spending transactions. Assign each a category from: ${categoriesList}\n\nReturn only the JSON array.`;
+    const userPrompt = `Extract all spending transactions. Assign each a category from: ${categoriesList}\n\nReturn only the raw JSON array, no markdown.`;
+
+    const geminiModel = genai.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      systemInstruction: SYSTEM_PROMPT,
+      generationConfig: { maxOutputTokens: 8192 },
+    });
 
     let responseText: string;
 
@@ -86,51 +92,28 @@ export async function POST(request: Request) {
       const bytes = await file.arrayBuffer();
       const base64 = Buffer.from(bytes).toString('base64');
 
-      // Use the Anthropic beta endpoint — required for PDF document blocks
-      const msg = await client.beta.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8192,
-        betas: ['pdfs-2024-09-25'],
-        system: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'document',
-                source: {
-                  type: 'base64',
-                  media_type: 'application/pdf',
-                  data: base64,
-                },
-              },
-              { type: 'text', text: userPrompt },
-            ],
+      const result = await geminiModel.generateContent([
+        {
+          inlineData: {
+            data: base64,
+            mimeType: 'application/pdf',
           },
-        ],
-      });
-
-      responseText = (msg.content[0] as { type: string; text: string }).text;
+        },
+        userPrompt,
+      ]);
+      responseText = result.response.text();
     } else {
       const text = await file.text();
       const MAX_CHARS = 60_000;
       const truncated = text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) : text;
 
-      const msg = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8192,
-        system: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: 'user',
-            content: `${userPrompt}\n\nStatement:\n${truncated}`,
-          },
-        ],
-      });
-
-      responseText = (msg.content[0] as { type: string; text: string }).text;
+      const result = await geminiModel.generateContent(
+        `${userPrompt}\n\nStatement:\n${truncated}`
+      );
+      responseText = result.response.text();
     }
 
+    // Strip any accidental markdown fences
     const match = responseText.trim().match(/\[[\s\S]*\]/);
     if (!match) {
       return Response.json({ transactions: [] });
