@@ -11,13 +11,19 @@ import crypto from 'crypto';
 
 // ── Plaid client ──────────────────────────────────────────────────────────────
 
-type PlaidEnvKey = keyof typeof PlaidEnvironments; // 'sandbox' | 'development' | 'production'
+// plaid v41 only exports sandbox + production in PlaidEnvironments
+// development must be hardcoded
+const BASE_PATHS: Record<string, string> = {
+  sandbox: 'https://sandbox.plaid.com',
+  development: 'https://development.plaid.com',
+  production: 'https://production.plaid.com',
+};
 
-const env = (process.env.PLAID_ENV ?? 'sandbox') as PlaidEnvKey;
+const env = process.env.PLAID_ENV ?? 'sandbox';
 
 export const plaidClient = new PlaidApi(
   new Configuration({
-    basePath: PlaidEnvironments[env] ?? PlaidEnvironments.sandbox,
+    basePath: BASE_PATHS[env] ?? PlaidEnvironments.sandbox,
     baseOptions: {
       headers: {
         'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID ?? '',

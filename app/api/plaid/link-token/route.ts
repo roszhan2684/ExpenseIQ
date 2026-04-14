@@ -28,8 +28,18 @@ export async function POST() {
     });
 
     return Response.json({ link_token: response.data.link_token });
-  } catch (err) {
-    console.error('[plaid/link-token]', err);
-    return Response.json({ error: 'Failed to create link token' }, { status: 500 });
+  } catch (err: unknown) {
+    // Extract the real Plaid error so we can diagnose it
+    const detail =
+      err instanceof Error ? err.message : String(err);
+    // Plaid SDK wraps HTTP errors — try to pull the response body
+    const plaidMsg =
+      (err as { response?: { data?: { error_message?: string; error_code?: string } } })
+        ?.response?.data?.error_message ?? null;
+    console.error('[plaid/link-token]', detail, plaidMsg);
+    return Response.json(
+      { error: 'Failed to create link token', detail, plaidError: plaidMsg },
+      { status: 500 }
+    );
   }
 }
