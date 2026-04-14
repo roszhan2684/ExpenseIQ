@@ -6,6 +6,8 @@ export interface Transaction {
   date: string; // ISO date string
   type?: 'income' | 'expense';
   currency?: string;
+  source?: 'manual' | 'plaid';
+  pending?: boolean;
 }
 
 export interface CategoryBudget {

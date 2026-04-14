@@ -18,8 +18,10 @@
     "next-auth": "^5.0.0-beta.30",
     "nodemailer": "^7.0.13",
     "pdfjs-dist": "^5.6.205",
+    "plaid": "^41.4.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-plaid-link": "^4.1.1",
     "recharts": "^3.8.1",
     "vercel": "^51.2.0"
   },

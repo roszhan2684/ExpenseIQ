@@ -35,6 +35,8 @@ export async function GET(request: Request) {
       category: t.category,
       date: t.date,
       type: t.type ?? 'expense',
+      source: t.source ?? 'manual',
+      pending: t.pending ?? false,
     }))
   );
 }

@@ -7,11 +7,32 @@ import { AppSettings } from '@/lib/types';
 import AddTransactionModal from '@/components/AddTransactionModal';
 import StatementUploadModal from '@/components/StatementUploadModal';
 import SpendingDonut from '@/components/SpendingDonut';
+import PlaidLinkButton from '@/components/PlaidLinkButton';
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
 ];
+
+interface LinkedItem {
+  id: string;
+  itemId: string;
+  institutionName: string;
+  lastSyncAt: string | null;
+  status: 'active' | 'error' | 'disconnected';
+  accounts: { accountId: string; name: string; type: string; mask?: string }[];
+}
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return 'Never synced';
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 2) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -23,6 +44,9 @@ export default function Dashboard() {
   const [categories, setCategories] = useState<string[]>([]);
   const [currencySymbol, setCurrencySymbol] = useState('$');
   const [loading, setLoading] = useState(true);
+  const [linkedItems, setLinkedItems] = useState<LinkedItem[]>([]);
+  const [syncingItem, setSyncingItem] = useState<string | null>(null);
+  const [unlinkingItem, setUnlinkingItem] = useState<string | null>(null);
 
   const fetchSettings = useCallback(async () => {
     const res = await fetch('/api/user-settings');
@@ -42,10 +66,16 @@ export default function Dashboard() {
     setLoading(false);
   }, []);
 
+  const fetchLinkedItems = useCallback(async () => {
+    const res = await fetch('/api/plaid/items');
+    if (res.ok) setLinkedItems(await res.json());
+  }, []);
+
   useEffect(() => {
     fetchSettings();
     fetchTransactions();
-  }, [fetchSettings, fetchTransactions]);
+    fetchLinkedItems();
+  }, [fetchSettings, fetchTransactions, fetchLinkedItems]);
 
   useEffect(() => {
     setTransactions(getTransactionsForMonth(allTransactions, selectedYear, selectedMonth));
@@ -74,6 +104,43 @@ export default function Dashboard() {
     setAllTransactions((prev) => [...imported, ...prev]);
   };
 
+  const handleBankLinked = useCallback(
+    (result: { institution: string; accounts: number; transactionsSynced: number }) => {
+      // Refresh both transactions and linked items after successful link
+      fetchTransactions();
+      fetchLinkedItems();
+      console.log(
+        `[plaid] Linked "${result.institution}": ${result.accounts} accounts, ${result.transactionsSynced} transactions`
+      );
+    },
+    [fetchTransactions, fetchLinkedItems]
+  );
+
+  const handleSync = async (itemId: string) => {
+    setSyncingItem(itemId);
+    try {
+      await fetch('/api/plaid/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId }),
+      });
+      await Promise.all([fetchTransactions(), fetchLinkedItems()]);
+    } finally {
+      setSyncingItem(null);
+    }
+  };
+
+  const handleUnlink = async (itemId: string) => {
+    if (!confirm('Unlink this bank? Your existing transactions will be kept.')) return;
+    setUnlinkingItem(itemId);
+    try {
+      await fetch(`/api/plaid/items/${itemId}`, { method: 'DELETE' });
+      await fetchLinkedItems();
+    } finally {
+      setUnlinkingItem(null);
+    }
+  };
+
   const goToPrevMonth = () => {
     if (selectedMonth === 0) { setSelectedMonth(11); setSelectedYear((y) => y - 1); }
     else setSelectedMonth((m) => m - 1);
@@ -85,18 +152,18 @@ export default function Dashboard() {
 
   const now = new Date();
   const isCurrentMonth = selectedYear === now.getFullYear() && selectedMonth === now.getMonth();
-
   const netIsPositive = stats.netBalance >= 0;
 
   return (
     <div className="flex-1 p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Dashboard</h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">Track your spending at a glance</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <PlaidLinkButton onLinked={handleBankLinked} />
           <button
             onClick={() => setShowImport(true)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
@@ -114,6 +181,52 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* Connected Banks */}
+      {linkedItems.length > 0 && (
+        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
+          <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-3">Connected Banks</p>
+          <div className="space-y-2">
+            {linkedItems.map((item) => (
+              <div key={item.id} className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
+                    <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-zinc-900 dark:text-white truncate">{item.institutionName}</p>
+                    <p className="text-xs text-zinc-400">
+                      {item.accounts.map((a) => `${a.name}${a.mask ? ` ••${a.mask}` : ''}`).join(' · ')}
+                      {' · '}
+                      <span className={item.status === 'error' ? 'text-red-500' : ''}>
+                        {item.status === 'error' ? '⚠ Re-link required' : `Synced ${timeAgo(item.lastSyncAt)}`}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => handleSync(item.itemId)}
+                    disabled={syncingItem === item.itemId}
+                    className="text-xs px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+                  >
+                    {syncingItem === item.itemId ? 'Syncing…' : '↻ Sync'}
+                  </button>
+                  <button
+                    onClick={() => handleUnlink(item.itemId)}
+                    disabled={unlinkingItem === item.itemId}
+                    className="text-xs px-3 py-1.5 rounded-md text-zinc-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50 transition-colors"
+                  >
+                    Unlink
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Month Selector */}
       <div className="flex items-center gap-3">
@@ -195,21 +308,32 @@ export default function Dashboard() {
           <div className="px-6 py-12 text-center text-zinc-400 text-sm">Loading...</div>
         ) : transactions.length === 0 ? (
           <div className="px-6 py-12 text-center text-zinc-400 dark:text-zinc-600 text-sm">
-            No transactions for {MONTH_NAMES[selectedMonth]}. Add one!
+            No transactions for {MONTH_NAMES[selectedMonth]}. Add one or connect your bank!
           </div>
         ) : (
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {transactions.map((tx) => {
               const isIncome = tx.type === 'income';
+              const isPlaid = tx.source === 'plaid';
               return (
                 <li key={tx.id} className="flex items-center justify-between px-6 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
                   <div className="flex items-center gap-4">
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0 ${isIncome ? 'bg-emerald-500' : ''}`}
-                      style={isIncome ? {} : { background: CATEGORY_COLORS[tx.category] ?? '#94a3b8' }}>
+                    <div
+                      className={`w-9 h-9 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0 ${isIncome ? 'bg-emerald-500' : ''}`}
+                      style={isIncome ? {} : { background: CATEGORY_COLORS[tx.category] ?? '#94a3b8' }}
+                    >
                       {isIncome ? '+' : tx.category.slice(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-zinc-900 dark:text-white">{tx.description}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-medium text-zinc-900 dark:text-white">{tx.description}</p>
+                        {tx.pending && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">pending</span>
+                        )}
+                        {isPlaid && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-400">bank</span>
+                        )}
+                      </div>
                       <p className="text-xs text-zinc-400 mt-0.5">{tx.category} · {tx.date}</p>
                     </div>
                   </div>
@@ -217,7 +341,13 @@ export default function Dashboard() {
                     <span className={`text-sm font-semibold ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-900 dark:text-white'}`}>
                       {isIncome ? '+' : '-'}{currencySymbol}{tx.amount.toFixed(2)}
                     </span>
-                    <button onClick={() => handleDelete(tx.id)} className="text-zinc-300 hover:text-red-500 dark:text-zinc-600 dark:hover:text-red-400 transition-colors text-base" title="Delete">×</button>
+                    <button
+                      onClick={() => handleDelete(tx.id)}
+                      className="text-zinc-300 hover:text-red-500 dark:text-zinc-600 dark:hover:text-red-400 transition-colors text-base"
+                      title="Delete"
+                    >
+                      ×
+                    </button>
                   </div>
                 </li>
               );
