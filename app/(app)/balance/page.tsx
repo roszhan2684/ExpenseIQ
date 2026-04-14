@@ -178,7 +178,7 @@ export default function BalancePage() {
                   width={70}
                 />
                 <Tooltip
-                  formatter={(v: number) => [`${symbol}${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 'Balance']}
+                  formatter={(v) => [`${symbol}${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 'Balance']}
                   contentStyle={{ fontSize: 12, borderRadius: 8 }}
                 />
                 <Area
