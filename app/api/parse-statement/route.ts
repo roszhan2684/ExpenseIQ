@@ -4,9 +4,6 @@ export const maxDuration = 60;
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/auth';
 import { DEFAULT_CATEGORIES } from '@/lib/types';
-// pdf-parse v1 exports a CJS function; use require to avoid ESM/CJS interop issues
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -44,6 +41,9 @@ export async function POST(request: Request) {
     let statementText: string;
 
     if (isPDF) {
+      // Lazy require so pdf-parse's test-fixture check doesn't run at build time
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
       const bytes = await file.arrayBuffer();
       const buffer = Buffer.from(bytes);
       const parsed = await pdfParse(buffer);
