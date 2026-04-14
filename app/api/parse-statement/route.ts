@@ -39,21 +39,48 @@ export async function POST(request: Request) {
 
     const categoriesList = DEFAULT_CATEGORIES.join(', ');
 
-    const systemPrompt = `You are a precise bank statement parser. Extract every debit/expense/withdrawal transaction from the document.
+    const systemPrompt = `You are a precise bank statement parser. Extract every real spending transaction from the document.
 
-Rules:
-- Skip: credits, deposits, refunds, opening/closing balances, bank fees unless they are clear expenses
-- date must be YYYY-MM-DD (infer year from statement context if not shown)
-- description: clean merchant name, remove transaction IDs, reference numbers, extra whitespace
-- amount: positive number representing money spent
-- category: pick the BEST match from the list provided
+INCLUDE:
+- All debit card purchases / card withdrawals
+- Zelle payments SENT (PMT To ...) — these are money spent
+- Electronic withdrawals to merchants, universities, utilities, subscriptions
+- Any cash withdrawal at ATM
+
+EXCLUDE (do NOT include these):
+- Deposits, credits, or money received (Zelle PMT From, payroll, mobile check deposits)
+- Payments to credit cards (AMEX EPAYMENT, DISCOVER E-PAYMENT, etc.) — these are bill payments not direct expenses
+- Internal bank-to-bank transfers (Mobile Banking Transfer, transfers between own accounts)
+- Opening/closing balances, interest, bank fees
+
+YEAR INFERENCE: The statement header shows the statement period (e.g. "Dec 10, 2025 through Jan 12, 2026"). Use that to assign the correct 4-digit year to every date. Dates in December → 2025, dates in January → 2026 (or whichever year matches the statement period).
+
+DATE FORMAT: Always output YYYY-MM-DD.
+
+DESCRIPTION: Clean up the merchant name. Remove store numbers, reference numbers, city/state, and extra whitespace. Examples:
+  "PANDA EXPRESS #1" → "Panda Express"
+  "TRADER JOE S #01 BREA CA" → "Trader Joe's"
+  "NAYAX VENDING 60" → "Vending Machine"
+  "CSC SERVICEWORKS" → "CSC ServiceWorks (Laundry)"
+  "APPLE.COM/BILL" → "Apple Subscription"
+  "OVERLEAF* TRIAL" → "Overleaf"
+  "AMC 0437 ORANGE" → "AMC Movies"
+  "TST* PARIS BAGUE" → "Paris Baguette"
+  "10359 CAVA COLLE" → "Cava"
+  "PMT To Yashwanth" → "Zelle - Yashwanth"
+  "PMT To Ibad" → "Zelle - Ibad"
+  "To CSUF FEE PAYMENT" → "CSUF Fee Payment"
+
+AMOUNT: Positive number. Strip the minus sign if present.
+
+CATEGORY: Pick the single best fit from the provided list.
 
 Respond with ONLY a raw JSON array — no markdown, no code fences, no explanation:
 [{"date":"YYYY-MM-DD","description":"Merchant Name","amount":0.00,"category":"Category"}]
 
-If the document contains no recognisable transactions, return an empty array: []`;
+If no transactions found, return: []`;
 
-    const userPrompt = `Extract all expense transactions. Assign each a category from: ${categoriesList}\n\nReturn only the JSON array.`;
+    const userPrompt = `Extract all spending transactions following the rules above. Assign each a category from: ${categoriesList}\n\nReturn only the JSON array — no prose, no markdown.`;
 
     let responseText: string;
 
