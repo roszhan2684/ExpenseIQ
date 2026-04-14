@@ -7,21 +7,21 @@ import { DEFAULT_CATEGORIES } from '@/lib/types';
 
 const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
-const SYSTEM_PROMPT = `You are a precise bank statement parser. Extract every real spending transaction from the document.
+const EXTRACTION_PROMPT = `You are a precise bank statement parser. Extract every real spending transaction from the text below.
 
 INCLUDE:
 - All debit card purchases / card withdrawals
-- Zelle payments SENT (PMT To ...) — these are money the account holder spent
+- Zelle payments SENT (PMT To ...) — money the account holder spent
 - Electronic withdrawals to merchants, universities, utilities, subscriptions
 - ATM cash withdrawals
-- Credit card bill payments (AMEX, Discover, etc.) — real outgoing money
+- Credit card bill payments (AMEX, Discover, etc.)
 
 EXCLUDE:
 - Deposits, credits, money received (Zelle PMT From, payroll, mobile check deposits, refunds)
 - Internal bank-to-bank transfers between the holder's own accounts
 - Opening/closing balances, interest, bank fees
 
-YEAR INFERENCE: The statement header contains a period like "Dec 10, 2025 through Jan 12, 2026". Use it to assign the correct full year to every date. "Dec 10" → 2025-12-10, "Jan 5" → 2026-01-05.
+YEAR INFERENCE: The statement header contains a period like "Dec 10, 2025 through Jan 12, 2026". Use it to assign the correct full year. "Dec 10" → 2025-12-10, "Jan 5" → 2026-01-05.
 
 DATE FORMAT: YYYY-MM-DD only.
 
@@ -47,6 +47,76 @@ Output ONLY a raw JSON array, no markdown, no explanation:
 [{"date":"YYYY-MM-DD","description":"Merchant","amount":0.00,"category":"Category"}]
 If no transactions: []`;
 
+// ─────────────────────────────────────────────────────────────────────
+// LlamaParse: upload PDF → poll → return markdown text
+// Docs: https://docs.cloud.llamaindex.ai/llamaparse/getting_started/
+// ─────────────────────────────────────────────────────────────────────
+const LLAMA_BASE = 'https://api.cloud.llamaindex.ai/api/parsing';
+
+async function parseWithLlama(file: File): Promise<string> {
+  const llamaKey = process.env.LLAMA_PARSE_API_KEY;
+  if (!llamaKey) throw new Error('LLAMA_PARSE_API_KEY is not set');
+
+  // 1. Upload the file
+  const upload = new FormData();
+  upload.append('file', file);
+
+  const uploadRes = await fetch(`${LLAMA_BASE}/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${llamaKey}` },
+    body: upload,
+  });
+
+  if (!uploadRes.ok) {
+    const detail = await uploadRes.text();
+    throw new Error(`LlamaParse upload failed (${uploadRes.status}): ${detail}`);
+  }
+
+  const { id: jobId } = (await uploadRes.json()) as { id: string };
+
+  // 2. Poll until SUCCESS (max ~50 s)
+  let succeeded = false;
+  for (let i = 0; i < 25; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const statusRes = await fetch(`${LLAMA_BASE}/job/${jobId}`, {
+      headers: { Authorization: `Bearer ${llamaKey}` },
+    });
+    const { status } = (await statusRes.json()) as { status: string };
+    if (status === 'SUCCESS' || status === 'PARTIAL_SUCCESS') { succeeded = true; break; }
+    if (status === 'ERROR') throw new Error('LlamaParse job failed');
+  }
+  if (!succeeded) throw new Error('LlamaParse timed out');
+
+  // 3. Fetch the markdown result
+  const resultRes = await fetch(`${LLAMA_BASE}/job/${jobId}/result/markdown`, {
+    headers: { Authorization: `Bearer ${llamaKey}` },
+  });
+  if (!resultRes.ok) throw new Error('Failed to fetch LlamaParse result');
+
+  const { markdown } = (await resultRes.json()) as { markdown: string };
+  return markdown;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// GEMINI fallback (kept for reference / easy re-enable)
+// ─────────────────────────────────────────────────────────────────────
+// async function parseWithGeminiPDF(file: File, prompt: string): Promise<string> {
+//   const bytes = await file.arrayBuffer();
+//   const base64 = Buffer.from(bytes).toString('base64');
+//   const m = genai.getGenerativeModel({
+//     model: 'gemini-2.5-flash',
+//     systemInstruction: EXTRACTION_PROMPT,
+//     generationConfig: { maxOutputTokens: 8192 },
+//   });
+//   const result = await m.generateContent([
+//     { inlineData: { data: base64, mimeType: 'application/pdf' } },
+//     prompt,
+//   ]);
+//   return result.response.text();
+// }
+
+// ─────────────────────────────────────────────────────────────────────
+
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -57,9 +127,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
 
-    if (!file) {
-      return Response.json({ error: 'No file provided' }, { status: 400 });
-    }
+    if (!file) return Response.json({ error: 'No file provided' }, { status: 400 });
 
     const MAX_BYTES = 20 * 1024 * 1024;
     if (file.size > MAX_BYTES) {
@@ -80,44 +148,34 @@ export async function POST(request: Request) {
     const categoriesList = DEFAULT_CATEGORIES.join(', ');
     const userPrompt = `Extract all spending transactions. Assign each a category from: ${categoriesList}\n\nReturn only the raw JSON array, no markdown.`;
 
+    // ── Step 1: get raw text ───────────────────────────────────────────
+    let statementText: string;
+
+    if (isPDF) {
+      // LlamaParse handles the PDF → clean markdown text
+      statementText = await parseWithLlama(file);
+    } else {
+      statementText = await file.text();
+    }
+
+    const MAX_CHARS = 80_000;
+    if (statementText.length > MAX_CHARS) statementText = statementText.slice(0, MAX_CHARS);
+
+    // ── Step 2: Gemini extracts transactions from the text ─────────────
     const geminiModel = genai.getGenerativeModel({
       model: 'gemini-2.5-flash',
-      systemInstruction: SYSTEM_PROMPT,
+      systemInstruction: EXTRACTION_PROMPT,
       generationConfig: { maxOutputTokens: 8192 },
     });
 
-    let responseText: string;
+    const result = await geminiModel.generateContent(
+      `${userPrompt}\n\nStatement text:\n${statementText}`
+    );
+    const responseText = result.response.text();
 
-    if (isPDF) {
-      const bytes = await file.arrayBuffer();
-      const base64 = Buffer.from(bytes).toString('base64');
-
-      const result = await geminiModel.generateContent([
-        {
-          inlineData: {
-            data: base64,
-            mimeType: 'application/pdf',
-          },
-        },
-        userPrompt,
-      ]);
-      responseText = result.response.text();
-    } else {
-      const text = await file.text();
-      const MAX_CHARS = 60_000;
-      const truncated = text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) : text;
-
-      const result = await geminiModel.generateContent(
-        `${userPrompt}\n\nStatement:\n${truncated}`
-      );
-      responseText = result.response.text();
-    }
-
-    // Strip any accidental markdown fences
+    // ── Step 3: parse + validate JSON ─────────────────────────────────
     const match = responseText.trim().match(/\[[\s\S]*\]/);
-    if (!match) {
-      return Response.json({ transactions: [] });
-    }
+    if (!match) return Response.json({ transactions: [] });
 
     const raw = JSON.parse(match[0]) as Array<{
       date?: unknown;
