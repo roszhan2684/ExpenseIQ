@@ -1,9 +1,12 @@
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // allow up to 60s for large PDFs
+export const maxDuration = 60;
 
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/auth';
 import { DEFAULT_CATEGORIES } from '@/lib/types';
+// pdf-parse has a quirk in Next.js — import from the lib path to avoid test-fixture errors
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer) => Promise<{ text: string }>;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -37,28 +40,51 @@ export async function POST(request: Request) {
       );
     }
 
+    // ── Extract raw text ────────────────────────────────────────────────
+    let statementText: string;
+
+    if (isPDF) {
+      const bytes = await file.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+      const parsed = await pdfParse(buffer);
+      statementText = parsed.text;
+    } else {
+      statementText = await file.text();
+    }
+
+    if (!statementText || statementText.trim().length < 20) {
+      return Response.json({ error: 'Could not extract text from this file.' }, { status: 400 });
+    }
+
+    // Truncate to ~60k chars to stay within model context limits
+    const MAX_CHARS = 60_000;
+    if (statementText.length > MAX_CHARS) {
+      statementText = statementText.slice(0, MAX_CHARS);
+    }
+
+    // ── Ask Claude to parse ─────────────────────────────────────────────
     const categoriesList = DEFAULT_CATEGORIES.join(', ');
 
-    const systemPrompt = `You are a precise bank statement parser. Extract every real spending transaction from the document.
+    const systemPrompt = `You are a precise bank statement parser. Extract every real spending transaction from the text.
 
 INCLUDE:
 - All debit card purchases / card withdrawals
-- Zelle payments SENT (PMT To ...) — these are money spent
+- Zelle payments SENT (PMT To ...) — these are money the account holder spent
 - Electronic withdrawals to merchants, universities, utilities, subscriptions
-- Any cash withdrawal at ATM
+- ATM cash withdrawals
+- Credit card bill payments sent to AMEX, Discover, etc. (these ARE real outgoing money)
 
-EXCLUDE (do NOT include these):
-- Deposits, credits, or money received (Zelle PMT From, payroll, mobile check deposits)
-- Payments to credit cards (AMEX EPAYMENT, DISCOVER E-PAYMENT, etc.) — these are bill payments not direct expenses
-- Internal bank-to-bank transfers (Mobile Banking Transfer, transfers between own accounts)
+EXCLUDE:
+- Deposits, credits, money received (Zelle PMT From, payroll, mobile check deposits, refunds)
+- Internal bank-to-bank transfers between the holder's own accounts
 - Opening/closing balances, interest, bank fees
 
-YEAR INFERENCE: The statement header shows the statement period (e.g. "Dec 10, 2025 through Jan 12, 2026"). Use that to assign the correct 4-digit year to every date. Dates in December → 2025, dates in January → 2026 (or whichever year matches the statement period).
+YEAR INFERENCE: The statement header contains a period like "Dec 10, 2025 through Jan 12, 2026". Use it to assign the correct full year to every date. Example: "Dec 10" → 2025-12-10, "Jan 5" → 2026-01-05.
 
-DATE FORMAT: Always output YYYY-MM-DD.
+DATE FORMAT: YYYY-MM-DD only.
 
-DESCRIPTION: Clean up the merchant name. Remove store numbers, reference numbers, city/state, and extra whitespace. Examples:
-  "PANDA EXPRESS #1" → "Panda Express"
+DESCRIPTION: Clean merchant name — strip store numbers, REF numbers, city/state, ALL-CAPS:
+  "PANDA EXPRESS #1 FULLERTON CA" → "Panda Express"
   "TRADER JOE S #01 BREA CA" → "Trader Joe's"
   "NAYAX VENDING 60" → "Vending Machine"
   "CSC SERVICEWORKS" → "CSC ServiceWorks (Laundry)"
@@ -70,66 +96,32 @@ DESCRIPTION: Clean up the merchant name. Remove store numbers, reference numbers
   "PMT To Yashwanth" → "Zelle - Yashwanth"
   "PMT To Ibad" → "Zelle - Ibad"
   "To CSUF FEE PAYMENT" → "CSUF Fee Payment"
+  "To AMEX EPAYMENT" → "Amex Payment"
+  "To DISCOVER" → "Discover Payment"
 
-AMOUNT: Positive number. Strip the minus sign if present.
+AMOUNT: Positive number, no minus sign, 2 decimal places.
 
-CATEGORY: Pick the single best fit from the provided list.
+CATEGORY: Assign the single best from: ${categoriesList}
 
-Respond with ONLY a raw JSON array — no markdown, no code fences, no explanation:
-[{"date":"YYYY-MM-DD","description":"Merchant Name","amount":0.00,"category":"Category"}]
+Output ONLY a raw JSON array, no markdown, no explanation:
+[{"date":"YYYY-MM-DD","description":"Merchant","amount":0.00,"category":"Category"}]
+If no transactions: []`;
 
-If no transactions found, return: []`;
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 8192,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: `Parse all spending transactions from this bank statement:\n\n${statementText}`,
+        },
+      ],
+    });
 
-    const userPrompt = `Extract all spending transactions following the rules above. Assign each a category from: ${categoriesList}\n\nReturn only the JSON array — no prose, no markdown.`;
+    const responseText = (msg.content[0] as { type: string; text: string }).text.trim();
 
-    let responseText: string;
-
-    if (isPDF) {
-      const bytes = await file.arrayBuffer();
-      const base64 = Buffer.from(bytes).toString('base64');
-
-      const msg = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8192,
-        system: systemPrompt,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'document',
-                source: {
-                  type: 'base64',
-                  media_type: 'application/pdf',
-                  data: base64,
-                },
-              } as { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } },
-              { type: 'text', text: userPrompt },
-            ],
-          },
-        ],
-      });
-
-      responseText = (msg.content[0] as { type: string; text: string }).text;
-    } else {
-      const text = await file.text();
-
-      const msg = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8192,
-        system: systemPrompt,
-        messages: [
-          {
-            role: 'user',
-            content: `${userPrompt}\n\nStatement:\n${text}`,
-          },
-        ],
-      });
-
-      responseText = (msg.content[0] as { type: string; text: string }).text;
-    }
-
-    // Extract JSON array from the response (guard against any stray prose)
+    // Guard against any stray prose before/after the array
     const match = responseText.match(/\[[\s\S]*\]/);
     if (!match) {
       return Response.json({ transactions: [] });
@@ -160,6 +152,7 @@ If no transactions found, return: []`;
     return Response.json({ transactions });
   } catch (err) {
     console.error('[parse-statement]', err);
-    return Response.json({ error: 'Failed to parse statement. Please try again.' }, { status: 500 });
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return Response.json({ error: `Failed to parse statement: ${msg}` }, { status: 500 });
   }
 }
