@@ -5,6 +5,7 @@ import { Transaction, CURRENCIES, CATEGORY_COLORS } from '@/lib/types';
 import { computeMonthlyStats, getTransactionsForMonth, getAllCategories } from '@/lib/storage';
 import { AppSettings } from '@/lib/types';
 import AddTransactionModal from '@/components/AddTransactionModal';
+import StatementUploadModal from '@/components/StatementUploadModal';
 import SpendingDonut from '@/components/SpendingDonut';
 
 const MONTH_NAMES = [
@@ -18,6 +19,7 @@ export default function Dashboard() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [showModal, setShowModal] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [currencySymbol, setCurrencySymbol] = useState('$');
   const [loading, setLoading] = useState(true);
@@ -68,6 +70,10 @@ export default function Dashboard() {
     setAllTransactions((prev) => prev.filter((t) => t.id !== id));
   };
 
+  const handleImport = (imported: Transaction[]) => {
+    setAllTransactions((prev) => [...imported, ...prev]);
+  };
+
   const goToPrevMonth = () => {
     if (selectedMonth === 0) { setSelectedMonth(11); setSelectedYear((y) => y - 1); }
     else setSelectedMonth((m) => m - 1);
@@ -88,12 +94,23 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Dashboard</h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">Track your spending at a glance</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-colors shadow-sm"
-        >
-          <span className="text-lg leading-none">+</span> Add Transaction
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Import Statement
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-colors shadow-sm"
+          >
+            <span className="text-lg leading-none">+</span> Add Transaction
+          </button>
+        </div>
       </div>
 
       {/* Month Selector */}
@@ -201,6 +218,14 @@ export default function Dashboard() {
           currencySymbol={currencySymbol}
           onAdd={handleAdd}
           onClose={() => setShowModal(false)}
+        />
+      )}
+
+      {showImport && (
+        <StatementUploadModal
+          currencySymbol={currencySymbol}
+          onImport={handleImport}
+          onClose={() => setShowImport(false)}
         />
       )}
     </div>
