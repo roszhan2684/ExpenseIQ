@@ -8,6 +8,7 @@ import { useTheme } from './ThemeProvider';
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: '◈' },
   { href: '/analytics', label: 'Analytics', icon: '◉' },
+  { href: '/balance', label: 'Balance', icon: '⊟' },
   { href: '/ai-insights', label: 'AI Insights', icon: '✦' },
   { href: '/settings', label: 'Settings', icon: '⚙' },
   { href: '/profile', label: 'Account', icon: '○' },
