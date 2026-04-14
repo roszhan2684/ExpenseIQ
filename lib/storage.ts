@@ -66,18 +66,26 @@ export function getTransactionsForMonth(
 }
 
 export function computeMonthlyStats(transactions: Transaction[]) {
-  const total = transactions.reduce((sum, t) => sum + t.amount, 0);
+  const expenses = transactions.filter((t) => (t.type ?? 'expense') === 'expense');
+  const income = transactions.filter((t) => t.type === 'income');
+
+  const totalExpense = expenses.reduce((s, t) => s + t.amount, 0);
+  const totalIncome = income.reduce((s, t) => s + t.amount, 0);
+  const netBalance = totalIncome - totalExpense;
+
   const byCategory: Record<string, number> = {};
-  for (const t of transactions) {
+  for (const t of expenses) {
     byCategory[t.category] = (byCategory[t.category] ?? 0) + t.amount;
   }
+
   const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const daysPassed = Math.max(1, now.getDate());
-  const dailyAverage = total / daysPassed;
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const dailyAverage = totalExpense / daysPassed;
   const projectedTotal = dailyAverage * daysInMonth;
-  const topTransactions = [...transactions].sort((a, b) => b.amount - a.amount).slice(0, 5);
-  return { total, byCategory, dailyAverage, projectedTotal, topTransactions };
+
+  const topTransactions = [...expenses].sort((a, b) => b.amount - a.amount).slice(0, 5);
+  return { total: totalExpense, totalExpense, totalIncome, netBalance, byCategory, dailyAverage, projectedTotal, topTransactions };
 }
 
 export function exportToCSV(transactions: Transaction[], currencySymbol: string): void {

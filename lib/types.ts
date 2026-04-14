@@ -4,6 +4,7 @@ export interface Transaction {
   description: string;
   category: string;
   date: string; // ISO date string
+  type?: 'income' | 'expense';
   currency?: string;
 }
 
@@ -21,6 +22,9 @@ export interface AppSettings {
 
 export interface MonthlyStats {
   total: number;
+  totalExpense: number;
+  totalIncome: number;
+  netBalance: number;
   byCategory: Record<string, number>;
   dailyAverage: number;
   projectedTotal: number;
@@ -40,6 +44,16 @@ export const DEFAULT_CATEGORIES = [
   'Personal Care',
   'Subscriptions',
   'Other',
+];
+
+export const INCOME_CATEGORIES = [
+  'Paycheck / Salary',
+  'Transfer In',
+  'Refund',
+  'Freelance',
+  'Gift',
+  'Investment',
+  'Other Income',
 ];
 
 export const CURRENCIES = [

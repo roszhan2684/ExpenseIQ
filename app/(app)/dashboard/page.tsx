@@ -86,6 +86,8 @@ export default function Dashboard() {
   const now = new Date();
   const isCurrentMonth = selectedYear === now.getFullYear() && selectedMonth === now.getMonth();
 
+  const netIsPositive = stats.netBalance >= 0;
+
   return (
     <div className="flex-1 p-6 space-y-6">
       {/* Header */}
@@ -129,17 +131,23 @@ export default function Dashboard() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[
-          { label: 'Total Spent', value: `${currencySymbol}${stats.total.toFixed(2)}`, sub: `${transactions.length} transactions` },
-          { label: 'Daily Average', value: `${currencySymbol}${stats.dailyAverage.toFixed(2)}`, sub: 'per day' },
-          { label: isCurrentMonth ? 'Projected Total' : 'Month Total', value: `${currencySymbol}${stats.projectedTotal.toFixed(2)}`, sub: isCurrentMonth ? 'by end of month' : 'final' },
-        ].map((card) => (
-          <div key={card.label} className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">{card.label}</p>
-            <p className="text-2xl font-bold text-zinc-900 dark:text-white mt-1">{card.value}</p>
-            <p className="text-xs text-zinc-400 mt-1">{card.sub}</p>
-          </div>
-        ))}
+        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5">
+          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Total Earned</p>
+          <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">{currencySymbol}{stats.totalIncome.toFixed(2)}</p>
+          <p className="text-xs text-zinc-400 mt-1">{transactions.filter(t => t.type === 'income').length} income transactions</p>
+        </div>
+        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5">
+          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Total Spent</p>
+          <p className="text-2xl font-bold text-zinc-900 dark:text-white mt-1">{currencySymbol}{stats.totalExpense.toFixed(2)}</p>
+          <p className="text-xs text-zinc-400 mt-1">{transactions.filter(t => (t.type ?? 'expense') === 'expense').length} expense transactions</p>
+        </div>
+        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5">
+          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Net Balance</p>
+          <p className={`text-2xl font-bold mt-1 ${netIsPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>
+            {netIsPositive ? '+' : ''}{currencySymbol}{stats.netBalance.toFixed(2)}
+          </p>
+          <p className="text-xs text-zinc-400 mt-1">{netIsPositive ? 'surplus this month' : 'deficit this month'}</p>
+        </div>
       </div>
 
       {/* Chart + Breakdown */}
@@ -151,11 +159,11 @@ export default function Dashboard() {
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-6">
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-white mb-4">Category Breakdown</h2>
           {donutData.length === 0 ? (
-            <div className="flex items-center justify-center h-64 text-zinc-400 dark:text-zinc-600 text-sm">No transactions this month</div>
+            <div className="flex items-center justify-center h-64 text-zinc-400 dark:text-zinc-600 text-sm">No expenses this month</div>
           ) : (
             <div className="space-y-3 overflow-auto max-h-64 pr-1">
               {donutData.sort((a, b) => b.value - a.value).map((item) => {
-                const pct = stats.total > 0 ? (item.value / stats.total) * 100 : 0;
+                const pct = stats.totalExpense > 0 ? (item.value / stats.totalExpense) * 100 : 0;
                 return (
                   <div key={item.name}>
                     <div className="flex items-center justify-between text-xs mb-1">
@@ -191,23 +199,29 @@ export default function Dashboard() {
           </div>
         ) : (
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {transactions.map((tx) => (
-              <li key={tx.id} className="flex items-center justify-between px-6 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="w-9 h-9 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ background: CATEGORY_COLORS[tx.category] ?? '#94a3b8' }}>
-                    {tx.category.slice(0, 2).toUpperCase()}
+            {transactions.map((tx) => {
+              const isIncome = tx.type === 'income';
+              return (
+                <li key={tx.id} className="flex items-center justify-between px-6 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0 ${isIncome ? 'bg-emerald-500' : ''}`}
+                      style={isIncome ? {} : { background: CATEGORY_COLORS[tx.category] ?? '#94a3b8' }}>
+                      {isIncome ? '+' : tx.category.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-zinc-900 dark:text-white">{tx.description}</p>
+                      <p className="text-xs text-zinc-400 mt-0.5">{tx.category} · {tx.date}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-zinc-900 dark:text-white">{tx.description}</p>
-                    <p className="text-xs text-zinc-400 mt-0.5">{tx.category} · {tx.date}</p>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-sm font-semibold ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-900 dark:text-white'}`}>
+                      {isIncome ? '+' : '-'}{currencySymbol}{tx.amount.toFixed(2)}
+                    </span>
+                    <button onClick={() => handleDelete(tx.id)} className="text-zinc-300 hover:text-red-500 dark:text-zinc-600 dark:hover:text-red-400 transition-colors text-base" title="Delete">×</button>
                   </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold text-zinc-900 dark:text-white">-{currencySymbol}{tx.amount.toFixed(2)}</span>
-                  <button onClick={() => handleDelete(tx.id)} className="text-zinc-300 hover:text-red-500 dark:text-zinc-600 dark:hover:text-red-400 transition-colors text-base" title="Delete">×</button>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

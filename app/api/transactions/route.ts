@@ -34,6 +34,7 @@ export async function GET(request: Request) {
       description: t.description,
       category: t.category,
       date: t.date,
+      type: t.type ?? 'expense',
     }))
   );
 }
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
   if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const { amount, description, category, date } = body;
+  const { amount, description, category, date, type } = body;
 
   if (!amount || !description || !category || !date) {
     return Response.json({ error: 'Missing required fields' }, { status: 400 });
@@ -57,10 +58,11 @@ export async function POST(request: Request) {
     description,
     category,
     date,
+    type: type === 'income' ? 'income' : 'expense',
   });
 
   return Response.json(
-    { id: tx._id.toString(), amount: tx.amount, description, category, date },
+    { id: tx._id.toString(), amount: tx.amount, description, category, date, type: tx.type },
     { status: 201 }
   );
 }

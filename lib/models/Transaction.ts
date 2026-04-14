@@ -7,6 +7,7 @@ export interface ITransaction {
   description: string;
   category: string;
   date: string;
+  type: 'income' | 'expense';
   createdAt: Date;
 }
 
@@ -17,6 +18,7 @@ const TransactionSchema = new Schema<ITransaction>(
     description: { type: String, required: true, trim: true },
     category: { type: String, required: true },
     date: { type: String, required: true },
+    type: { type: String, enum: ['income', 'expense'], default: 'expense' },
   },
   { timestamps: true }
 );

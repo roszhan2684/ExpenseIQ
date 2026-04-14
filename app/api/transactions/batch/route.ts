@@ -9,6 +9,7 @@ interface TxInput {
   description: string;
   amount: number;
   category: string;
+  type?: 'income' | 'expense';
 }
 
 export async function POST(request: Request) {
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
     description: String(tx.description).trim(),
     category: String(tx.category),
     date: String(tx.date).slice(0, 10),
+    type: tx.type === 'income' ? 'income' : 'expense',
   }));
 
   const created = await Transaction.insertMany(docs, { ordered: false });
@@ -45,6 +47,7 @@ export async function POST(request: Request) {
         description: t.description,
         category: t.category,
         date: t.date,
+        type: t.type ?? 'expense',
       })),
     },
     { status: 201 }
