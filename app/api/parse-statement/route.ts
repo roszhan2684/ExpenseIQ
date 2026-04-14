@@ -81,7 +81,7 @@ export async function POST(request: Request) {
     const userPrompt = `Extract all spending transactions. Assign each a category from: ${categoriesList}\n\nReturn only the raw JSON array, no markdown.`;
 
     const geminiModel = genai.getGenerativeModel({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-1.5-flash',
       systemInstruction: SYSTEM_PROMPT,
       generationConfig: { maxOutputTokens: 8192 },
     });
