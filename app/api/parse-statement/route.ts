@@ -4,9 +4,9 @@ export const maxDuration = 60;
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/auth';
 import { DEFAULT_CATEGORIES } from '@/lib/types';
-// pdf-parse has a quirk in Next.js — import from the lib path to avoid test-fixture errors
+// pdf-parse v1 exports a CJS function; use require to avoid ESM/CJS interop issues
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer) => Promise<{ text: string }>;
+const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
