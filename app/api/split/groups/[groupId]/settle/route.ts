@@ -4,6 +4,7 @@ import { auth } from '@/auth';
 import { connectDB } from '@/lib/db';
 import { SplitGroup, type IGroupMember } from '@/lib/models/SplitGroup';
 import { SplitExpense } from '@/lib/models/SplitExpense';
+import { Transaction } from '@/lib/models/Transaction';
 
 export async function POST(
   request: Request,
@@ -54,6 +55,39 @@ export async function POST(
     notes: body.notes?.trim() || undefined,
     createdBy: session.user.id,
   });
+
+  const txDate = body.date
+    ? new Date(body.date).toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+
+  // Auto-record in both parties' ledgers
+  // Payer (fromMember) records an expense — they sent money out
+  if (fromMember.userId) {
+    await Transaction.create({
+      userId: fromMember.userId,
+      amount: body.amount,
+      description: `[Split] Paid ${toMember.name}`,
+      category: 'Split',
+      date: txDate,
+      type: 'expense',
+      source: 'manual',
+      pending: false,
+    }).catch(() => { /* non-fatal */ });
+  }
+
+  // Receiver (toMember) records income — they received money
+  if (toMember.userId) {
+    await Transaction.create({
+      userId: toMember.userId,
+      amount: body.amount,
+      description: `[Split] Received from ${fromMember.name}`,
+      category: 'Split',
+      date: txDate,
+      type: 'income',
+      source: 'manual',
+      pending: false,
+    }).catch(() => { /* non-fatal */ });
+  }
 
   await SplitGroup.updateOne({ _id: groupId }, { $set: { updatedAt: new Date() } });
 

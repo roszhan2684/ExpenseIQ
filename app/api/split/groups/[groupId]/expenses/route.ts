@@ -4,6 +4,7 @@ import { auth } from '@/auth';
 import { connectDB } from '@/lib/db';
 import { SplitGroup, type IGroupMember } from '@/lib/models/SplitGroup';
 import { SplitExpense } from '@/lib/models/SplitExpense';
+import { Transaction } from '@/lib/models/Transaction';
 
 export async function GET(
   _req: Request,
@@ -101,6 +102,23 @@ export async function POST(
     transactionId: body.transactionId || undefined,
     createdBy: session.user.id,
   });
+
+  // Auto-record in payer's personal transaction ledger
+  if (paidByMember.userId) {
+    const txDate = body.date
+      ? new Date(body.date).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    await Transaction.create({
+      userId: paidByMember.userId,
+      amount: body.amount,
+      description: `[Split] ${description}`,
+      category: body.category || 'Split',
+      date: txDate,
+      type: 'expense',
+      source: 'manual',
+      pending: false,
+    }).catch(() => { /* non-fatal */ });
+  }
 
   // Touch the group updatedAt
   await SplitGroup.updateOne({ _id: groupId }, { $set: { updatedAt: new Date() } });

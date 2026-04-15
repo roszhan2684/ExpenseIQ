@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 type View = 'login' | 'forgot-email' | 'forgot-otp' | 'forgot-done';
 
@@ -20,7 +20,17 @@ const EyeOff = () => (
 );
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get('callbackUrl') ?? '/dashboard';
   const [view, setView] = useState<View>('login');
 
   // Login state
@@ -53,7 +63,7 @@ export default function LoginPage() {
       if (!result || result.error) {
         setLoginError('Invalid email or password. Please check and try again.');
       } else {
-        router.push('/dashboard');
+        router.push(callbackUrl);
         router.refresh();
       }
     } catch {

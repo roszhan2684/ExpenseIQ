@@ -15,6 +15,8 @@ export interface ISplitGroup {
   description?: string;
   currency: string;
   members: IGroupMember[];
+  inviteCode: string;   // unique shareable code
+  inviteEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,17 +34,20 @@ const MemberSchema = new Schema<IGroupMember>(
 
 const SplitGroupSchema = new Schema<ISplitGroup>(
   {
-    ownerId:     { type: String, required: true },
-    name:        { type: String, required: true, trim: true },
-    description: { type: String, trim: true },
-    currency:    { type: String, default: 'USD' },
-    members:     [MemberSchema],
+    ownerId:       { type: String, required: true },
+    name:          { type: String, required: true, trim: true },
+    description:   { type: String, trim: true },
+    currency:      { type: String, default: 'USD' },
+    members:       [MemberSchema],
+    inviteCode:    { type: String, required: true, unique: true },
+    inviteEnabled: { type: Boolean, default: true },
   },
   { timestamps: true },
 );
 
 SplitGroupSchema.index({ ownerId: 1 });
 SplitGroupSchema.index({ 'members.userId': 1 });
+SplitGroupSchema.index({ inviteCode: 1 }, { unique: true });
 
 export const SplitGroup =
   models.SplitGroup || model<ISplitGroup>('SplitGroup', SplitGroupSchema);

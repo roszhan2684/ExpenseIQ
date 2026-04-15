@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback, use } from 'react';
+import { useState, useEffect, useCallback, useRef, use } from 'react';
 import Link from 'next/link';
 import AddExpenseModal from '@/components/split/AddExpenseModal';
 import RecordSettlementModal from '@/components/split/RecordSettlementModal';
+import InviteSheet from '@/components/split/InviteSheet';
 
 interface Member { id: string; name: string; color: string; email?: string; userId?: string }
 interface SplitShare { memberId: string; amount: number; paid: boolean }
@@ -26,6 +27,8 @@ interface SplitGroup {
   description?: string;
   currency: string;
   members: Member[];
+  inviteCode: string;
+  inviteEnabled: boolean;
 }
 interface Debt { from: string; fromName: string; to: string; toName: string; amount: number }
 interface Balance { memberId: string; memberName: string; net: number }
@@ -51,8 +54,10 @@ export default function GroupPage({ params }: { params: Promise<{ groupId: strin
   const [tab, setTab] = useState<Tab>('expenses');
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showSettle, setShowSettle] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
   const [settleDebt, setSettleDebt] = useState<Debt | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const lastUpdatedAt = useRef<string>('');
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -61,7 +66,11 @@ export default function GroupPage({ params }: { params: Promise<{ groupId: strin
       fetch(`/api/split/groups/${groupId}/expenses`),
       fetch(`/api/split/groups/${groupId}/balances`),
     ]);
-    if (gRes.ok) setGroup(await gRes.json());
+    if (gRes.ok) {
+      const g = await gRes.json();
+      setGroup(g);
+      lastUpdatedAt.current = g.updatedAt;
+    }
     if (eRes.ok) setExpenses(await eRes.json());
     if (bRes.ok) {
       const bd = await bRes.json();
@@ -71,7 +80,25 @@ export default function GroupPage({ params }: { params: Promise<{ groupId: strin
     setLoading(false);
   }, [groupId]);
 
+  // Lightweight poll — only refetches full data when updatedAt changes
+  const pollActivity = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/split/groups/${groupId}/activity`);
+      if (!res.ok) return;
+      const { updatedAt } = await res.json();
+      if (updatedAt && updatedAt !== lastUpdatedAt.current) {
+        await fetchAll();
+      }
+    } catch { /* network hiccup, ignore */ }
+  }, [groupId, fetchAll]);
+
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Poll every 10 seconds for real-time sync
+  useEffect(() => {
+    const timer = setInterval(pollActivity, 10_000);
+    return () => clearInterval(timer);
+  }, [pollActivity]);
 
   const handleDeleteExpense = async (id: string) => {
     if (!confirm('Delete this expense?')) return;
@@ -118,6 +145,16 @@ export default function GroupPage({ params }: { params: Promise<{ groupId: strin
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{group.description}</p>
           )}
         </div>
+        {/* Invite button */}
+        <button
+          onClick={() => setShowInvite(true)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-400 text-xs font-medium hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+          </svg>
+          Invite
+        </button>
       </div>
 
       {/* Stats row */}
@@ -141,14 +178,29 @@ export default function GroupPage({ params }: { params: Promise<{ groupId: strin
         {group.members.map((m) => (
           <div key={m.id} className="flex flex-col items-center gap-1 shrink-0">
             <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold relative"
               style={{ backgroundColor: m.color }}
             >
               {m.name[0].toUpperCase()}
+              {m.userId && (
+                <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white dark:border-zinc-900" />
+              )}
             </div>
             <span className="text-[10px] text-zinc-500 dark:text-zinc-400 max-w-[48px] truncate text-center">{m.name}</span>
           </div>
         ))}
+        {/* Add member via invite */}
+        <button
+          onClick={() => setShowInvite(true)}
+          className="flex flex-col items-center gap-1 shrink-0"
+        >
+          <div className="w-9 h-9 rounded-full border-2 border-dashed border-zinc-300 dark:border-zinc-600 flex items-center justify-center text-zinc-400 dark:text-zinc-500 hover:border-violet-400 hover:text-violet-500 transition-colors">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </div>
+          <span className="text-[10px] text-zinc-400 dark:text-zinc-500">Invite</span>
+        </button>
       </div>
 
       {/* Action buttons */}
@@ -261,7 +313,6 @@ export default function GroupPage({ params }: { params: Promise<{ groupId: strin
 
       {tab === 'balances' && (
         <div className="space-y-4">
-          {/* Simplified debts */}
           {debts.length > 0 && (
             <div>
               <h3 className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">Who owes who</h3>
@@ -312,7 +363,6 @@ export default function GroupPage({ params }: { params: Promise<{ groupId: strin
             </div>
           )}
 
-          {/* Per-member balances */}
           <div>
             <h3 className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">Member balances</h3>
             <div className="space-y-2">
@@ -321,10 +371,20 @@ export default function GroupPage({ params }: { params: Promise<{ groupId: strin
                 return (
                   <div key={b.memberId} className="flex items-center justify-between bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 px-4 py-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: m?.color }}>
-                        {b.memberName[0].toUpperCase()}
+                      <div className="relative">
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: m?.color }}>
+                          {b.memberName[0].toUpperCase()}
+                        </div>
+                        {m?.userId && (
+                          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white dark:border-zinc-900" />
+                        )}
                       </div>
-                      <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{b.memberName}</span>
+                      <div>
+                        <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{b.memberName}</span>
+                        {!m?.userId && (
+                          <span className="ml-1.5 text-[10px] text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded-full">guest</span>
+                        )}
+                      </div>
                     </div>
                     <span className={`text-sm font-bold ${
                       b.net > 0.01 ? 'text-emerald-600 dark:text-emerald-400' :
@@ -354,6 +414,14 @@ export default function GroupPage({ params }: { params: Promise<{ groupId: strin
           prefilledDebt={settleDebt}
           onClose={() => { setShowSettle(false); setSettleDebt(null); }}
           onSettled={() => { setShowSettle(false); setSettleDebt(null); fetchAll(); }}
+        />
+      )}
+
+      {showInvite && (
+        <InviteSheet
+          group={group}
+          onClose={() => setShowInvite(false)}
+          onUpdated={fetchAll}
         />
       )}
     </div>

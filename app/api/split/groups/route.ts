@@ -3,7 +3,11 @@ export const dynamic = 'force-dynamic';
 import { auth } from '@/auth';
 import { connectDB } from '@/lib/db';
 import { SplitGroup } from '@/lib/models/SplitGroup';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
+
+function generateInviteCode(): string {
+  return randomBytes(5).toString('hex').toUpperCase(); // e.g. "A3F7C2B1E0"
+}
 
 const MEMBER_COLORS = [
   '#7c3aed','#2563eb','#059669','#d97706','#dc2626',
@@ -67,6 +71,8 @@ export async function POST(request: Request) {
     description: body.description?.trim() || undefined,
     currency: body.currency ?? 'USD',
     members,
+    inviteCode: generateInviteCode(),
+    inviteEnabled: true,
   });
 
   return Response.json(group, { status: 201 });
