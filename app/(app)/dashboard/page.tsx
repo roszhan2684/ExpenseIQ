@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Transaction, CURRENCIES, CATEGORY_COLORS } from '@/lib/types';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Transaction, CURRENCIES, CATEGORY_COLORS, CategoryBudget } from '@/lib/types';
 import { computeMonthlyStats, getTransactionsForMonth, getAllCategories } from '@/lib/storage';
 import { AppSettings } from '@/lib/types';
 import AddTransactionModal from '@/components/AddTransactionModal';
 import StatementUploadModal from '@/components/StatementUploadModal';
 import SpendingDonut from '@/components/SpendingDonut';
 import PlaidLinkButton from '@/components/PlaidLinkButton';
+import SplitBalanceWidget from '@/components/split/SplitBalanceWidget';
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
@@ -42,6 +43,7 @@ export default function Dashboard() {
   const [showModal, setShowModal] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
+  const [budgets, setBudgets] = useState<CategoryBudget[]>([]);
   const [currencySymbol, setCurrencySymbol] = useState('$');
   const [loading, setLoading] = useState(true);
   const [linkedItems, setLinkedItems] = useState<LinkedItem[]>([]);
@@ -53,6 +55,7 @@ export default function Dashboard() {
     if (!res.ok) return;
     const s: AppSettings = await res.json();
     setCategories(getAllCategories(s));
+    setBudgets(s.budgets ?? []);
     const cur = CURRENCIES.find((c) => c.code === s.currency);
     setCurrencySymbol(cur?.symbol ?? '$');
   }, []);
@@ -154,30 +157,55 @@ export default function Dashboard() {
   const isCurrentMonth = selectedYear === now.getFullYear() && selectedMonth === now.getMonth();
   const netIsPositive = stats.netBalance >= 0;
 
+  // ── Spending streak (current month only) ───────────────────────────────────
+  const streak = useMemo(() => {
+    const totalBudget = budgets.reduce((s, b) => s + b.limit, 0);
+    if (totalBudget === 0 || !isCurrentMonth) return null;
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const dailyBudget = totalBudget / daysInMonth;
+    const byDay = new Map<string, number>();
+    for (const tx of transactions) {
+      if ((tx.type ?? 'expense') !== 'expense') continue;
+      byDay.set(tx.date, (byDay.get(tx.date) ?? 0) + tx.amount);
+    }
+    let count = 0;
+    for (let d = now.getDate(); d >= 1; d--) {
+      const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const spent = byDay.get(key) ?? 0;
+      if (spent <= dailyBudget) count++;
+      else break;
+    }
+    return { count, dailyBudget };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions, budgets, isCurrentMonth]);
+
   return (
-    <div className="flex-1 p-6 space-y-6">
+    <div className="flex-1 p-3 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Dashboard</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">Track your spending at a glance</p>
+          <h1 className="text-xl md:text-2xl font-bold text-zinc-900 dark:text-white">Dashboard</h1>
+          <p className="text-xs md:text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">Track your spending at a glance</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <PlaidLinkButton onLinked={handleBankLinked} />
           <button
             onClick={() => setShowImport(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs md:text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
-            Import Statement
+            <span className="hidden sm:inline">Import Statement</span>
+            <span className="sm:hidden">Import</span>
           </button>
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-colors shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 text-white text-xs md:text-sm font-medium hover:bg-violet-700 transition-colors shadow-sm"
           >
-            <span className="text-lg leading-none">+</span> Add Transaction
+            <span className="text-base leading-none">+</span>
+            <span className="hidden sm:inline">Add Transaction</span>
+            <span className="sm:hidden">Add</span>
           </button>
         </div>
       </div>
@@ -243,7 +271,7 @@ export default function Dashboard() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className={`grid gap-4 ${streak ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'}`}>
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5">
           <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Total Earned</p>
           <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">{currencySymbol}{stats.totalIncome.toFixed(2)}</p>
@@ -261,7 +289,24 @@ export default function Dashboard() {
           </p>
           <p className="text-xs text-zinc-400 mt-1">{netIsPositive ? 'surplus this month' : 'deficit this month'}</p>
         </div>
+        {streak && (
+          <div className={`rounded-xl border p-5 ${streak.count >= 7 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : streak.count >= 3 ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800' : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800'}`}>
+            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Budget Streak</p>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-2xl">{streak.count >= 7 ? '🔥' : streak.count >= 3 ? '✨' : '🌱'}</span>
+              <p className={`text-2xl font-bold ${streak.count >= 7 ? 'text-amber-600 dark:text-amber-400' : streak.count >= 3 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-900 dark:text-white'}`}>
+                {streak.count} day{streak.count !== 1 ? 's' : ''}
+              </p>
+            </div>
+            <p className="text-xs text-zinc-400 mt-1">
+              {streak.count === 0 ? 'No streak — stay under budget today!' : `under ${currencySymbol}${streak.dailyBudget.toFixed(0)}/day`}
+            </p>
+          </div>
+        )}
       </div>
+
+      {/* Split Balance Widget */}
+      <SplitBalanceWidget />
 
       {/* Chart + Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -316,7 +361,7 @@ export default function Dashboard() {
               const isIncome = tx.type === 'income';
               const isPlaid = tx.source === 'plaid';
               return (
-                <li key={tx.id} className="flex items-center justify-between px-6 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
+                <li key={tx.id} className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
                   <div className="flex items-center gap-4">
                     <div
                       className={`w-9 h-9 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0 ${isIncome ? 'bg-emerald-500' : ''}`}

@@ -6,12 +6,16 @@ import { useSession, signOut } from 'next-auth/react';
 import { useTheme } from './ThemeProvider';
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: '◈' },
-  { href: '/analytics', label: 'Analytics', icon: '◉' },
-  { href: '/balance', label: 'Balance', icon: '⊟' },
-  { href: '/ai-insights', label: 'AI Insights', icon: '✦' },
-  { href: '/settings', label: 'Settings', icon: '⚙' },
-  { href: '/profile', label: 'Account', icon: '○' },
+  { href: '/dashboard',     label: 'Dashboard',    icon: '◈' },
+  { href: '/chat',          label: 'AI Chat',      icon: '✦' },
+  { href: '/analytics',     label: 'Analytics',    icon: '◉' },
+  { href: '/balance',       label: 'Balance',      icon: '⊟' },
+  { href: '/subscriptions', label: 'Subscriptions', icon: '↺' },
+  { href: '/split',         label: 'Split',        icon: '⊕' },
+  { href: '/net-worth',     label: 'Net Worth',    icon: '◎' },
+  { href: '/ai-insights',   label: 'AI Insights',  icon: '◆' },
+  { href: '/settings',      label: 'Settings',     icon: '⚙' },
+  { href: '/profile',       label: 'Account',      icon: '○' },
 ];
 
 export default function Sidebar() {
@@ -24,7 +28,7 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="w-64 shrink-0 flex flex-col h-screen bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 sticky top-0">
+    <aside className="w-64 shrink-0 hidden lg:flex flex-col h-screen bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 sticky top-0">
       {/* Logo */}
       <div className="px-6 py-5 border-b border-zinc-200 dark:border-zinc-800">
         <div className="flex items-center gap-2.5">
