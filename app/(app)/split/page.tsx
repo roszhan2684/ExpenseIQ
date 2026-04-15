@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import CreateGroupModal from '@/components/split/CreateGroupModal';
 
 interface SplitGroup {
@@ -24,9 +25,35 @@ function timeAgo(iso: string) {
 }
 
 export default function SplitPage() {
+  const router = useRouter();
   const [groups, setGroups] = useState<SplitGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [codeInput, setCodeInput] = useState('');
+  const [codeError, setCodeError] = useState('');
+  const [joiningCode, setJoiningCode] = useState(false);
+
+  const handleJoinByCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = codeInput.trim().toUpperCase();
+    if (code.length < 6) { setCodeError('Enter a valid invite code'); return; }
+    setCodeError('');
+    setJoiningCode(true);
+    try {
+      // First verify it exists
+      const check = await fetch(`/api/split/join/${code}`);
+      if (!check.ok) { setCodeError('Invalid or expired invite code'); return; }
+      // Then join
+      const res = await fetch(`/api/split/join/${code}`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { setCodeError(data.error ?? 'Failed to join'); return; }
+      router.push(`/split/${data.groupId}`);
+    } catch {
+      setCodeError('Something went wrong. Try again.');
+    } finally {
+      setJoiningCode(false);
+    }
+  };
 
   const fetchGroups = useCallback(async () => {
     setLoading(true);
@@ -55,6 +82,31 @@ export default function SplitPage() {
           New group
         </button>
       </div>
+
+      {/* Join by code */}
+      <form onSubmit={handleJoinByCode} className="flex gap-2 mb-5">
+        <div className="flex-1 relative">
+          <input
+            type="text"
+            value={codeInput}
+            onChange={(e) => { setCodeInput(e.target.value.toUpperCase()); setCodeError(''); }}
+            placeholder="Enter invite code (e.g. A3F7C2)"
+            maxLength={12}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 placeholder:text-zinc-400 font-mono"
+          />
+          {codeError && (
+            <p className="absolute -bottom-5 left-0 text-xs text-red-500">{codeError}</p>
+          )}
+        </div>
+        <button
+          type="submit"
+          disabled={joiningCode || codeInput.trim().length < 6}
+          className="px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50"
+        >
+          {joiningCode ? '…' : 'Join'}
+        </button>
+      </form>
+      {codeError && <div className="mb-3" />}
 
       {/* Groups list */}
       {loading ? (

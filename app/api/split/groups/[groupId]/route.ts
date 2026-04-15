@@ -3,6 +3,21 @@ export const dynamic = 'force-dynamic';
 import { auth } from '@/auth';
 import { connectDB } from '@/lib/db';
 import { SplitGroup, type IGroupMember } from '@/lib/models/SplitGroup';
+import { randomBytes } from 'crypto';
+
+function generateInviteCode() {
+  return randomBytes(5).toString('hex').toUpperCase();
+}
+
+/** Back-fill inviteCode for groups created before the invite feature */
+async function ensureInviteCode(group: InstanceType<typeof SplitGroup> | null) {
+  if (!group) return;
+  if (!group.inviteCode) {
+    group.inviteCode = generateInviteCode();
+    group.inviteEnabled = true;
+    await group.save();
+  }
+}
 
 async function getGroupAndVerify(groupId: string, userId: string) {
   const group = await SplitGroup.findById(groupId);
@@ -25,6 +40,7 @@ export async function GET(
   const group = await getGroupAndVerify(groupId, session.user.id);
   if (!group) return Response.json({ error: 'Not found' }, { status: 404 });
 
+  await ensureInviteCode(group);
   return Response.json(group);
 }
 

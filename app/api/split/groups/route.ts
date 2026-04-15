@@ -25,7 +25,17 @@ export async function GET() {
       { ownerId: session.user.id },
       { 'members.userId': session.user.id },
     ],
-  }).sort({ updatedAt: -1 }).lean();
+  }).sort({ updatedAt: -1 });
+
+  // Back-fill inviteCode for legacy groups
+  const needsSave = groups.filter((g) => !g.inviteCode);
+  if (needsSave.length) {
+    await Promise.all(needsSave.map(async (g) => {
+      g.inviteCode = generateInviteCode();
+      g.inviteEnabled = true;
+      await g.save();
+    }));
+  }
 
   return Response.json(groups);
 }
