@@ -60,15 +60,31 @@ export async function DELETE(
 
   await connectDB();
   const group = await SplitGroup.findById(groupId);
-  if (!group || group.ownerId !== session.user.id) {
-    return Response.json({ error: 'Not found' }, { status: 404 });
+  if (!group) return Response.json({ error: 'Not found' }, { status: 404 });
+
+  const isOwner = group.ownerId === session.user.id;
+  const members = group.members as Array<{ id: string; userId?: string }>;
+  const target = members.find((m) => m.id === memberId);
+  if (!target) return Response.json({ error: 'Member not found' }, { status: 404 });
+
+  // Allow: owner removes anyone (except themselves), OR member removes themselves (leave)
+  const isSelf = target.userId === session.user.id;
+  if (!isOwner && !isSelf) {
+    return Response.json({ error: 'Not authorized' }, { status: 403 });
+  }
+  // Owner cannot remove themselves — they must delete the group instead
+  if (isOwner && isSelf) {
+    return Response.json({ error: 'Owner cannot leave. Delete the group instead.' }, { status: 400 });
+  }
+  // Owner cannot be removed by anyone
+  const targetIsOwner = group.ownerId === target.userId;
+  if (targetIsOwner && !isSelf) {
+    return Response.json({ error: 'Cannot remove the group owner' }, { status: 400 });
   }
 
-  const idx = (group.members as Array<{ id: string }>).findIndex((m) => m.id === memberId);
-  if (idx === -1) return Response.json({ error: 'Member not found' }, { status: 404 });
-
+  const idx = members.findIndex((m) => m.id === memberId);
   group.members.splice(idx, 1);
   await group.save();
 
-  return Response.json({ success: true });
+  return Response.json({ success: true, left: isSelf });
 }

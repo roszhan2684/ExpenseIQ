@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef, use } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import AddExpenseModal from '@/components/split/AddExpenseModal';
 import RecordSettlementModal from '@/components/split/RecordSettlementModal';
 import InviteSheet from '@/components/split/InviteSheet';
@@ -45,6 +47,8 @@ type Tab = 'expenses' | 'balances';
 
 export default function GroupPage({ params }: { params: Promise<{ groupId: string }> }) {
   const { groupId } = use(params);
+  const { data: session } = useSession();
+  const router = useRouter();
 
   const [group, setGroup] = useState<SplitGroup | null>(null);
   const [expenses, setExpenses] = useState<SplitExpense[]>([]);
@@ -420,8 +424,10 @@ export default function GroupPage({ params }: { params: Promise<{ groupId: strin
       {showInvite && (
         <InviteSheet
           group={group}
+          currentUserId={session?.user?.id ?? ''}
           onClose={() => setShowInvite(false)}
           onUpdated={fetchAll}
+          onLeft={() => router.push('/split')}
         />
       )}
     </div>

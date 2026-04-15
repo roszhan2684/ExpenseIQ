@@ -14,16 +14,52 @@ interface SplitGroup {
 
 interface Props {
   group: SplitGroup;
+  currentUserId: string;
   onClose: () => void;
   onUpdated: () => void;
+  onLeft: () => void;
 }
 
-export default function InviteSheet({ group, onClose, onUpdated }: Props) {
+export default function InviteSheet({ group, currentUserId, onClose, onUpdated, onLeft }: Props) {
   const [inviteCode, setInviteCode] = useState(group.inviteCode);
   const [inviteEnabled, setInviteEnabled] = useState(group.inviteEnabled);
   const [copied, setCopied] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [toggling, setToggling] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
+
+  const isOwner = group.ownerId === currentUserId;
+  const myMember = group.members.find((m) => m.userId === currentUserId);
+
+  const handleRemoveMember = async (memberId: string, memberName: string) => {
+    if (!confirm(`Remove ${memberName} from this group?`)) return;
+    setRemovingId(memberId);
+    try {
+      const res = await fetch(
+        `/api/split/groups/${group._id}/members?memberId=${memberId}`,
+        { method: 'DELETE' },
+      );
+      if (res.ok) onUpdated();
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  const handleLeave = async () => {
+    if (!myMember) return;
+    if (!confirm('Leave this group? You will lose access to all expenses.')) return;
+    setLeaving(true);
+    try {
+      const res = await fetch(
+        `/api/split/groups/${group._id}/members?memberId=${myMember.id}`,
+        { method: 'DELETE' },
+      );
+      if (res.ok) onLeft();
+    } finally {
+      setLeaving(false);
+    }
+  };
 
   const inviteUrl = typeof window !== 'undefined'
     ? `${window.location.origin}/split/join/${inviteCode}`
@@ -193,25 +229,63 @@ export default function InviteSheet({ group, onClose, onUpdated }: Props) {
           <div>
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">Current members</p>
             <div className="space-y-1.5">
-              {group.members.map((m) => (
-                <div key={m.id} className="flex items-center gap-2.5">
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ backgroundColor: m.color }}>
-                    {m.name[0].toUpperCase()}
+              {group.members.map((m) => {
+                const isMe = m.userId === currentUserId;
+                const memberIsOwner = group.ownerId === m.userId;
+                const canRemove = isOwner && !isMe && !memberIsOwner;
+                return (
+                  <div key={m.id} className="flex items-center gap-2.5">
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ backgroundColor: m.color }}>
+                      {m.name[0].toUpperCase()}
+                    </div>
+                    <span className="text-sm text-zinc-700 dark:text-zinc-300 flex-1 truncate">
+                      {m.name}
+                      {isMe && <span className="ml-1 text-zinc-400">(you)</span>}
+                    </span>
+                    {memberIsOwner && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 font-medium shrink-0">
+                        Owner
+                      </span>
+                    )}
+                    {!memberIsOwner && m.userId && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 font-medium shrink-0">
+                        Joined
+                      </span>
+                    )}
+                    {!m.userId && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-400 font-medium shrink-0">
+                        Guest
+                      </span>
+                    )}
+                    {canRemove && (
+                      <button
+                        onClick={() => handleRemoveMember(m.id, m.name)}
+                        disabled={removingId === m.id}
+                        className="p-1 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40 shrink-0"
+                        title={`Remove ${m.name}`}
+                      >
+                        {removingId === m.id
+                          ? <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                          : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                        }
+                      </button>
+                    )}
                   </div>
-                  <span className="text-sm text-zinc-700 dark:text-zinc-300 flex-1">{m.name}</span>
-                  {m.userId ? (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 font-medium">
-                      Joined
-                    </span>
-                  ) : (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-400 font-medium">
-                      Guest
-                    </span>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
+
+          {/* Leave group (non-owner members only) */}
+          {!isOwner && myMember && (
+            <button
+              onClick={handleLeave}
+              disabled={leaving}
+              className="w-full py-2.5 rounded-xl border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-60"
+            >
+              {leaving ? 'Leaving…' : 'Leave group'}
+            </button>
+          )}
         </div>
       </div>
     </div>
