@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { auth } from '@/auth';
+import { getUser } from '@/lib/getUser';
 import { connectDB } from '@/lib/db';
 import { SplitGroup } from '@/lib/models/SplitGroup';
 import { randomUUID } from 'crypto';
@@ -14,13 +14,13 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ groupId: string }> },
 ) {
-  const session = await auth();
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = await getUser(request);
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { groupId } = await params;
   await connectDB();
   const group = await SplitGroup.findById(groupId);
-  if (!group || group.ownerId !== session.user.id) {
+  if (!group || group.ownerId !== user.id) {
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
 
@@ -50,8 +50,8 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ groupId: string }> },
 ) {
-  const session = await auth();
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = await getUser(request);
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { groupId } = await params;
   const url = new URL(request.url);
@@ -62,13 +62,13 @@ export async function DELETE(
   const group = await SplitGroup.findById(groupId);
   if (!group) return Response.json({ error: 'Not found' }, { status: 404 });
 
-  const isOwner = group.ownerId === session.user.id;
+  const isOwner = group.ownerId === user.id;
   const members = group.members as Array<{ id: string; userId?: string }>;
   const target = members.find((m) => m.id === memberId);
   if (!target) return Response.json({ error: 'Member not found' }, { status: 404 });
 
   // Allow: owner removes anyone (except themselves), OR member removes themselves (leave)
-  const isSelf = target.userId === session.user.id;
+  const isSelf = target.userId === user.id;
   if (!isOwner && !isSelf) {
     return Response.json({ error: 'Not authorized' }, { status: 403 });
   }

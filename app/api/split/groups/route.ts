@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { auth } from '@/auth';
+import { getUser } from '@/lib/getUser';
 import { connectDB } from '@/lib/db';
 import { SplitGroup } from '@/lib/models/SplitGroup';
 import { randomUUID, randomBytes } from 'crypto';
@@ -14,16 +14,16 @@ const MEMBER_COLORS = [
   '#0891b2','#9333ea','#16a34a','#ea580c','#be185d',
 ];
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+export async function GET(request: Request) {
+  const user = await getUser(request);
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   await connectDB();
   // Return groups where user is owner OR a member
   const groups = await SplitGroup.find({
     $or: [
-      { ownerId: session.user.id },
-      { 'members.userId': session.user.id },
+      { ownerId: user.id },
+      { 'members.userId': user.id },
     ],
   }).sort({ updatedAt: -1 });
 
@@ -41,8 +41,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = await getUser(request);
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   let body: { name?: string; description?: string; currency?: string; memberNames?: string[] };
   try { body = await request.json(); } catch {
@@ -59,8 +59,8 @@ export async function POST(request: Request) {
   const members: Array<{ id: string; name: string; userId?: string; color: string }> = [
     {
       id: ownerMemberId,
-      name: session.user.name ?? 'Me',
-      userId: session.user.id,
+      name: user.name ?? 'Me',
+      userId: user.id,
       color: MEMBER_COLORS[0],
     },
   ];
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
   });
 
   const group = await SplitGroup.create({
-    ownerId: session.user.id,
+    ownerId: user.id,
     name,
     description: body.description?.trim() || undefined,
     currency: body.currency ?? 'USD',

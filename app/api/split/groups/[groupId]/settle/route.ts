@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { auth } from '@/auth';
+import { getUser } from '@/lib/getUser';
 import { connectDB } from '@/lib/db';
 import { SplitGroup, type IGroupMember } from '@/lib/models/SplitGroup';
 import { SplitExpense } from '@/lib/models/SplitExpense';
@@ -10,16 +10,16 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ groupId: string }> },
 ) {
-  const session = await auth();
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = await getUser(request);
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { groupId } = await params;
   await connectDB();
 
   const group = await SplitGroup.findById(groupId).lean();
   if (!group) return Response.json({ error: 'Not found' }, { status: 404 });
-  const isMember = group.ownerId === session.user.id ||
-    (group.members as IGroupMember[]).some((m) => m.userId === session.user.id);
+  const isMember = group.ownerId === user.id ||
+    (group.members as IGroupMember[]).some((m) => m.userId === user.id);
   if (!isMember) return Response.json({ error: 'Not found' }, { status: 404 });
 
   let body: {
@@ -53,7 +53,7 @@ export async function POST(
     splits: [{ memberId: body.toMemberId, amount: body.amount, paid: true }],
     date: body.date ? new Date(body.date) : new Date(),
     notes: body.notes?.trim() || undefined,
-    createdBy: session.user.id,
+    createdBy: user.id,
   });
 
   const txDate = body.date

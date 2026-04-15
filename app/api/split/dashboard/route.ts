@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { auth } from '@/auth';
+import { getUser } from '@/lib/getUser';
 import { connectDB } from '@/lib/db';
 import { SplitGroup } from '@/lib/models/SplitGroup';
 import { SplitExpense } from '@/lib/models/SplitExpense';
@@ -8,16 +8,16 @@ import { computeNetBalances } from '@/lib/split-balance';
 import type { IGroupMember } from '@/lib/models/SplitGroup';
 import type { ISplitExpense } from '@/lib/models/SplitExpense';
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+export async function GET(request: Request) {
+  const user = await getUser(request);
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   await connectDB();
 
   const groups = await SplitGroup.find({
     $or: [
-      { ownerId: session.user.id },
-      { 'members.userId': session.user.id },
+      { ownerId: user.id },
+      { 'members.userId': user.id },
     ],
   }).lean();
 
@@ -32,7 +32,7 @@ export async function GET() {
       );
 
       // Find my member entry in this group
-      const myMember = (group.members as IGroupMember[]).find((m) => m.userId === session.user!.id);
+      const myMember = (group.members as IGroupMember[]).find((m) => m.userId === user.id);
       const myBalance = myMember
         ? (balances.find((b) => b.memberId === myMember.id)?.net ?? 0)
         : 0;

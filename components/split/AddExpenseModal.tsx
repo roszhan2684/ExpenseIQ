@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 interface Member { id: string; name: string; color: string }
 interface SplitGroup { _id: string; name: string; currency: string; members: Member[] }
@@ -9,16 +9,44 @@ interface Props {
   group: SplitGroup;
   onClose: () => void;
   onAdded: () => void;
+  // Pre-fill from AI chat
+  prefill?: {
+    description: string;
+    amount: number;
+    paidByName?: string;
+    involvedNames?: string[];
+  };
 }
 
 const CATEGORIES = ['Food', 'Transport', 'Accommodation', 'Entertainment', 'Shopping', 'Utilities', 'Other'];
 
 type SplitMode = 'equal' | 'custom';
 
-export default function AddExpenseModal({ group, onClose, onAdded }: Props) {
-  const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState('');
-  const [paidBy, setPaidBy] = useState(group.members[0]?.id ?? '');
+/** Parse @Name tags from a description string and return matched member ids */
+function extractTaggedMembers(text: string, members: Member[]): string[] {
+  const tagged = new Set<string>();
+  const matches = text.match(/@([\w\s]+?)(?=\s@|\s\$|\s\d|$|[,.])/g);
+  if (!matches) return [];
+  for (const match of matches) {
+    const name = match.slice(1).trim().toLowerCase();
+    const found = members.find((m) => m.name.toLowerCase() === name);
+    if (found) tagged.add(found.id);
+  }
+  return [...tagged];
+}
+
+export default function AddExpenseModal({ group, onClose, onAdded, prefill }: Props) {
+  const [description, setDescription] = useState(prefill?.description ?? '');
+  const [amount, setAmount] = useState(prefill?.amount ? prefill.amount.toString() : '');
+  const [paidBy, setPaidBy] = useState(() => {
+    if (prefill?.paidByName) {
+      const m = group.members.find(
+        (m) => m.name.toLowerCase() === prefill.paidByName!.toLowerCase()
+      );
+      if (m) return m.id;
+    }
+    return group.members[0]?.id ?? '';
+  });
   const [category, setCategory] = useState('');
   const [notes, setNotes] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -29,9 +57,85 @@ export default function AddExpenseModal({ group, onClose, onAdded }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // @ mention state
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionAnchor, setMentionAnchor] = useState(0); // index of '@' in description
+  const descRef = useRef<HTMLInputElement>(null);
+  const mentionRef = useRef<HTMLDivElement>(null);
+
+  // Which members are actively involved (from @ tags or prefill)
+  const taggedIds = extractTaggedMembers(description, group.members);
+  const involvedMembers = taggedIds.length > 0
+    ? group.members.filter((m) => taggedIds.includes(m.id))
+    : group.members;
+
+  // Auto-select involved members from prefill
+  useEffect(() => {
+    if (prefill?.involvedNames?.length) {
+      // Build description with @ tags for prefilled involved members
+      const tags = prefill.involvedNames
+        .map((name) => {
+          const m = group.members.find(
+            (m) => m.name.toLowerCase() === name.toLowerCase()
+          );
+          return m ? `@${m.name}` : null;
+        })
+        .filter(Boolean)
+        .join(' ');
+      if (tags && !prefill.description.includes('@')) {
+        setDescription(`${prefill.description} ${tags}`.trim());
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Close mention dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (mentionRef.current && !mentionRef.current.contains(e.target as Node)) {
+        setMentionOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleDescriptionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setDescription(val);
+
+    // Detect @ trigger
+    const cursor = e.target.selectionStart ?? val.length;
+    const textBefore = val.slice(0, cursor);
+    const atMatch = textBefore.match(/@([\w ]*)$/);
+    if (atMatch) {
+      setMentionQuery(atMatch[1].toLowerCase());
+      setMentionAnchor(cursor - atMatch[0].length);
+      setMentionOpen(true);
+    } else {
+      setMentionOpen(false);
+    }
+  };
+
+  const handleMentionSelect = (member: Member) => {
+    const before = description.slice(0, mentionAnchor);
+    const after = description.slice(mentionAnchor + 1 + mentionQuery.length);
+    const newDesc = `${before}@${member.name}${after.startsWith(' ') ? '' : ' '}${after}`;
+    setDescription(newDesc.trim() + ' ');
+    setMentionOpen(false);
+    setMentionQuery('');
+    descRef.current?.focus();
+  };
+
+  const filteredMentions = group.members.filter((m) =>
+    m.name.toLowerCase().startsWith(mentionQuery)
+  );
+
   const totalAmount = parseFloat(amount) || 0;
-  const equalShare = group.members.length > 0
-    ? Math.round((totalAmount / group.members.length) * 100) / 100
+  const splitMembers = involvedMembers;
+  const equalShare = splitMembers.length > 0
+    ? Math.round((totalAmount / splitMembers.length) * 100) / 100
     : 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -45,12 +149,12 @@ export default function AddExpenseModal({ group, onClose, onAdded }: Props) {
     let splits: { memberId: string; amount: number }[];
 
     if (splitMode === 'equal') {
-      splits = group.members.map((m, i) => {
-        const last = i === group.members.length - 1;
+      splits = splitMembers.map((m, i) => {
+        const last = i === splitMembers.length - 1;
         return {
           memberId: m.id,
           amount: last
-            ? Math.round((totalAmount - equalShare * (group.members.length - 1)) * 100) / 100
+            ? Math.round((totalAmount - equalShare * (splitMembers.length - 1)) * 100) / 100
             : equalShare,
         };
       });
@@ -58,7 +162,7 @@ export default function AddExpenseModal({ group, onClose, onAdded }: Props) {
       splits = group.members.map((m) => ({
         memberId: m.id,
         amount: parseFloat(customSplits[m.id] ?? '0') || 0,
-      }));
+      })).filter((s) => s.amount > 0);
       const sum = splits.reduce((s, sp) => s + sp.amount, 0);
       if (Math.abs(sum - totalAmount) > 0.02) {
         setError(`Custom splits must sum to ${totalAmount.toFixed(2)}. Current: ${sum.toFixed(2)}`);
@@ -114,18 +218,74 @@ export default function AddExpenseModal({ group, onClose, onAdded }: Props) {
             </div>
           )}
 
-          <div>
-            <label className={labelCls}>Description</label>
-            <input type="text" required value={description} onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Dinner at Mario's" className={inputCls} autoFocus />
+          {/* Description with @ mention */}
+          <div className="relative">
+            <label className={labelCls}>
+              Description
+              <span className="ml-1.5 text-zinc-400 font-normal">· type @ to tag members</span>
+            </label>
+            <input
+              ref={descRef}
+              type="text"
+              required
+              value={description}
+              onChange={handleDescriptionChange}
+              placeholder="e.g. Dinner @John @Sarah"
+              className={inputCls}
+              autoFocus={!prefill}
+              autoComplete="off"
+            />
+
+            {/* @ mention dropdown */}
+            {mentionOpen && filteredMentions.length > 0 && (
+              <div
+                ref={mentionRef}
+                className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-lg z-50 overflow-hidden"
+              >
+                {filteredMentions.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); handleMentionSelect(m); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors text-left"
+                  >
+                    <span
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                      style={{ backgroundColor: m.color }}
+                    >
+                      {m.name[0].toUpperCase()}
+                    </span>
+                    <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{m.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Tagged members chips */}
+            {taggedIds.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                <span className="text-[10px] text-zinc-400 self-center">Splitting with:</span>
+                {involvedMembers.map((m) => (
+                  <span
+                    key={m.id}
+                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full text-white font-medium"
+                    style={{ backgroundColor: m.color }}
+                  >
+                    {m.name}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Amount ({group.currency})</label>
-              <input type="number" required min="0.01" step="0.01" value={amount}
+              <input
+                type="number" required min="0.01" step="0.01" value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00" className={inputCls} />
+                placeholder="0.00" className={inputCls}
+              />
             </div>
             <div>
               <label className={labelCls}>Date</label>
@@ -166,30 +326,39 @@ export default function AddExpenseModal({ group, onClose, onAdded }: Props) {
 
           {/* Split mode */}
           <div>
-            <label className={labelCls}>Split</label>
-            <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl p-1 mb-3">
-              {(['equal', 'custom'] as SplitMode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setSplitMode(m)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors capitalize ${
-                    splitMode === m
-                      ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
-                      : 'text-zinc-500 dark:text-zinc-400'
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
+            <div className="flex items-center justify-between mb-2">
+              <label className={`${labelCls} mb-0`}>
+                Split
+                {taggedIds.length > 0 && (
+                  <span className="ml-1.5 text-violet-500 font-normal">
+                    ({involvedMembers.length} tagged)
+                  </span>
+                )}
+              </label>
+              <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-0.5">
+                {(['equal', 'custom'] as SplitMode[]).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setSplitMode(m)}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors capitalize ${
+                      splitMode === m
+                        ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
+                        : 'text-zinc-500 dark:text-zinc-400'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {splitMode === 'equal' ? (
               <div className="space-y-1.5">
-                {group.members.map((m, i) => {
-                  const last = i === group.members.length - 1;
+                {splitMembers.map((m, i) => {
+                  const last = i === splitMembers.length - 1;
                   const share = last && totalAmount > 0
-                    ? Math.round((totalAmount - equalShare * (group.members.length - 1)) * 100) / 100
+                    ? Math.round((totalAmount - equalShare * (splitMembers.length - 1)) * 100) / 100
                     : equalShare;
                   return (
                     <div key={m.id} className="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-800">
@@ -205,6 +374,11 @@ export default function AddExpenseModal({ group, onClose, onAdded }: Props) {
                     </div>
                   );
                 })}
+                {taggedIds.length > 0 && taggedIds.length < group.members.length && (
+                  <p className="text-[10px] text-violet-500 px-1">
+                    Only splitting with tagged members · {group.members.length - taggedIds.length} others excluded
+                  </p>
+                )}
               </div>
             ) : (
               <div className="space-y-2">

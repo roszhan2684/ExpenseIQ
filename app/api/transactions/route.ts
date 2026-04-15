@@ -1,12 +1,12 @@
 export const dynamic = 'force-dynamic';
 
-import { auth } from '@/auth';
+import { getUser } from '@/lib/getUser';
 import { connectDB } from '@/lib/db';
 import { Transaction } from '@/lib/models/Transaction';
 
 export async function GET(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = await getUser(request);
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const year = searchParams.get('year');
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
 
   await connectDB();
 
-  let query: Record<string, unknown> = { userId: session.user.id };
+  let query: Record<string, unknown> = { userId: user.id };
 
   if (year && month !== null) {
     const m = parseInt(month);
@@ -42,8 +42,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = await getUser(request);
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
   const { amount, description, category, date, type } = body;
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
   await connectDB();
 
   const tx = await Transaction.create({
-    userId: session.user.id,
+    userId: user.id,
     amount: parseFloat(amount),
     description,
     category,
