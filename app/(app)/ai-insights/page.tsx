@@ -57,7 +57,7 @@ export default function AIInsights() {
   };
 
   return (
-    <div className="flex-1 p-6 space-y-6">
+    <div className="flex-1 p-3 md:p-6 space-y-4 md:space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">AI Insights</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">Claude-powered analysis for {MONTH_NAMES[selectedMonth]} {selectedYear}</p>

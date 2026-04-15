@@ -1,7 +1,8 @@
 import NextAuth from 'next-auth';
-import Google from 'next-auth/providers/google';
-import GitHub from 'next-auth/providers/github';
-import Apple from 'next-auth/providers/apple';
+// OAuth providers commented out — email/OTP only for now
+// import Google from 'next-auth/providers/google';
+// import GitHub from 'next-auth/providers/github';
+// import Apple from 'next-auth/providers/apple';
 import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { connectDB } from '@/lib/db';
@@ -40,30 +41,16 @@ const providers = [
   }),
 ];
 
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-  providers.push(
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    }) as never
-  );
-}
-if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
-  providers.push(
-    GitHub({
-      clientId: process.env.GITHUB_CLIENT_ID,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET,
-    }) as never
-  );
-}
-if (process.env.APPLE_CLIENT_ID && process.env.APPLE_CLIENT_SECRET) {
-  providers.push(
-    Apple({
-      clientId: process.env.APPLE_CLIENT_ID,
-      clientSecret: process.env.APPLE_CLIENT_SECRET,
-    }) as never
-  );
-}
+// OAuth providers disabled — re-enable by uncommenting imports above and these blocks
+// if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+//   providers.push(Google({ clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET }) as never);
+// }
+// if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
+//   providers.push(GitHub({ clientId: process.env.GITHUB_CLIENT_ID, clientSecret: process.env.GITHUB_CLIENT_SECRET }) as never);
+// }
+// if (process.env.APPLE_CLIENT_ID && process.env.APPLE_CLIENT_SECRET) {
+//   providers.push(Apple({ clientId: process.env.APPLE_CLIENT_ID, clientSecret: process.env.APPLE_CLIENT_SECRET }) as never);
+// }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.NEXTAUTH_SECRET,

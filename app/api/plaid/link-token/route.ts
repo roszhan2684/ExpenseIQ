@@ -15,6 +15,16 @@ export async function POST() {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Only include webhook if it's a valid https:// URL
+  const rawWebhook = (process.env.PLAID_WEBHOOK_URL ?? '').trim();
+  let webhookUrl: string | undefined;
+  try {
+    const u = new URL(rawWebhook);
+    if (u.protocol === 'https:') webhookUrl = rawWebhook;
+  } catch {
+    // invalid or missing — skip webhook
+  }
+
   try {
     const response = await plaidClient.linkTokenCreate({
       user: { client_user_id: session.user.id },
@@ -24,7 +34,7 @@ export async function POST() {
       language: 'en',
       // Plaid sends SYNC_UPDATES_AVAILABLE to this URL when new transactions arrive.
       // Must be a publicly reachable HTTPS URL — set PLAID_WEBHOOK_URL in env.
-      webhook: process.env.PLAID_WEBHOOK_URL ?? undefined,
+      webhook: webhookUrl,
     });
 
     return Response.json({ link_token: response.data.link_token });

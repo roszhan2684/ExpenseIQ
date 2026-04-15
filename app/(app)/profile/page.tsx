@@ -119,7 +119,7 @@ export default function ProfilePage() {
   const eyeBtn = 'absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300';
 
   return (
-    <div className="flex-1 p-6 space-y-6 max-w-2xl">
+    <div className="flex-1 p-3 md:p-6 space-y-4 md:space-y-6 max-w-2xl">
       <div>
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Account & Profile</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">Manage your personal details and security</p>
